@@ -1,8 +1,7 @@
-# Harmless Tony ticket-22 desktop-release FIXTURE pipeline.
-# NOT a real deployment. Every job only sleeps + echoes. No artifacts published,
-# no deploy, no external effect. Mirrors the desktop release shape so the
-# subscribe_to_circleci_job_completed node can be proven on real pending->completion
-# jobs (build + 3 OS QA jobs + a failing-OS variation + manual approval holds).
+# Harmless Tony ticket-22 desktop-release FIXTURE pipeline (run4, with manual approval holds).
+# NOT a real deployment. Every job only sleeps + echoes. No artifacts, no deploy, no external effect.
+# Approval holds let a subscription be registered against a job while it is genuinely pending,
+# so the subscribe_to_circleci_job_completed node is proven on a real pending->completion transition.
 version: 2.1
 
 jobs:
@@ -14,7 +13,7 @@ jobs:
           name: Mock desktop build (version-bump 5.3.0)
           command: |
             echo "FIXTURE build-product-desktop-app for v5.3.0 (no real artifact)"
-            sleep 90
+            sleep 120
             echo "build done"
   package-linux-qa:
     docker:
@@ -24,7 +23,7 @@ jobs:
           name: Mock linux QA package
           command: |
             echo "FIXTURE package-linux-qa"
-            sleep 110
+            sleep 150
             echo "linux qa ok"
   package-windows-qa:
     docker:
@@ -34,7 +33,7 @@ jobs:
           name: Mock windows QA package
           command: |
             echo "FIXTURE package-windows-qa"
-            sleep 110
+            sleep 150
             echo "windows qa ok"
   package-mac-qa:
     docker:
@@ -44,7 +43,7 @@ jobs:
           name: Mock mac QA package
           command: |
             echo "FIXTURE package-mac-qa"
-            sleep 110
+            sleep 150
             echo "mac qa ok"
   package-linux-qa-fail:
     docker:
@@ -54,19 +53,32 @@ jobs:
           name: Mock linux QA package (intentional failure for S11)
           command: |
             echo "FIXTURE package-linux-qa-fail: will fail to prove a held release"
-            sleep 60
+            sleep 90
             exit 1
 
 workflows:
-  desktop-release-fixture:
+  # Build workflow: hold -> build. Approve the hold to start the build running.
+  desktop-release-build:
     jobs:
-      - build-product-desktop-app
+      - hold-build:
+          type: approval
+      - build-product-desktop-app:
+          requires: [hold-build]
+  # QA workflow: hold -> 3 OS QA jobs in parallel. Approve the hold to start all three running.
+  desktop-release-qa:
+    jobs:
+      - hold-qa:
+          type: approval
       - package-linux-qa:
-          requires: [build-product-desktop-app]
+          requires: [hold-qa]
       - package-windows-qa:
-          requires: [build-product-desktop-app]
+          requires: [hold-qa]
       - package-mac-qa:
-          requires: [build-product-desktop-app]
-  desktop-release-fixture-failcase:
+          requires: [hold-qa]
+  # Failcase workflow for the partial-OS-failure variation (S11).
+  desktop-release-failcase:
     jobs:
-      - package-linux-qa-fail
+      - hold-fail:
+          type: approval
+      - package-linux-qa-fail:
+          requires: [hold-fail]
