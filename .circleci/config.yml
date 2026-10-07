@@ -13,7 +13,7 @@ jobs:
           name: Mock desktop build (version-bump 5.3.0)
           command: |
             echo "FIXTURE build-product-desktop-app for v5.3.0 (no real artifact)"
-            sleep 120
+            sleep 420
             echo "build done"
   package-linux-qa:
     docker:
@@ -23,7 +23,7 @@ jobs:
           name: Mock linux QA package
           command: |
             echo "FIXTURE package-linux-qa"
-            sleep 150
+            sleep 420
             echo "linux qa ok"
   package-windows-qa:
     docker:
@@ -33,7 +33,7 @@ jobs:
           name: Mock windows QA package
           command: |
             echo "FIXTURE package-windows-qa"
-            sleep 150
+            sleep 420
             echo "windows qa ok"
   package-mac-qa:
     docker:
@@ -43,7 +43,7 @@ jobs:
           name: Mock mac QA package
           command: |
             echo "FIXTURE package-mac-qa"
-            sleep 150
+            sleep 420
             echo "mac qa ok"
   package-linux-qa-fail:
     docker:
@@ -53,7 +53,7 @@ jobs:
           name: Mock linux QA package (intentional failure for S11)
           command: |
             echo "FIXTURE package-linux-qa-fail: will fail to prove a held release"
-            sleep 90
+            sleep 300
             exit 1
 
 workflows:
