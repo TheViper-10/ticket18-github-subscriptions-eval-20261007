@@ -1,0 +1,72 @@
+# Harmless Tony ticket-22 desktop-release FIXTURE pipeline.
+# NOT a real deployment. Every job only sleeps + echoes. No artifacts published,
+# no deploy, no external effect. Mirrors the desktop release shape so the
+# subscribe_to_circleci_job_completed node can be proven on real pending->completion
+# jobs (build + 3 OS QA jobs + a failing-OS variation + manual approval holds).
+version: 2.1
+
+jobs:
+  build-product-desktop-app:
+    docker:
+      - image: cimg/base:2024.01
+    steps:
+      - run:
+          name: Mock desktop build (version-bump 5.3.0)
+          command: |
+            echo "FIXTURE build-product-desktop-app for v5.3.0 (no real artifact)"
+            sleep 90
+            echo "build done"
+  package-linux-qa:
+    docker:
+      - image: cimg/base:2024.01
+    steps:
+      - run:
+          name: Mock linux QA package
+          command: |
+            echo "FIXTURE package-linux-qa"
+            sleep 110
+            echo "linux qa ok"
+  package-windows-qa:
+    docker:
+      - image: cimg/base:2024.01
+    steps:
+      - run:
+          name: Mock windows QA package
+          command: |
+            echo "FIXTURE package-windows-qa"
+            sleep 110
+            echo "windows qa ok"
+  package-mac-qa:
+    docker:
+      - image: cimg/base:2024.01
+    steps:
+      - run:
+          name: Mock mac QA package
+          command: |
+            echo "FIXTURE package-mac-qa"
+            sleep 110
+            echo "mac qa ok"
+  package-linux-qa-fail:
+    docker:
+      - image: cimg/base:2024.01
+    steps:
+      - run:
+          name: Mock linux QA package (intentional failure for S11)
+          command: |
+            echo "FIXTURE package-linux-qa-fail: will fail to prove a held release"
+            sleep 60
+            exit 1
+
+workflows:
+  desktop-release-fixture:
+    jobs:
+      - build-product-desktop-app
+      - package-linux-qa:
+          requires: [build-product-desktop-app]
+      - package-windows-qa:
+          requires: [build-product-desktop-app]
+      - package-mac-qa:
+          requires: [build-product-desktop-app]
+  desktop-release-fixture-failcase:
+    jobs:
+      - package-linux-qa-fail
