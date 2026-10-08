@@ -1,51 +1,33 @@
-# Ticket 22 fixture pipeline: bridge-contract build (parent-agreed, 2026-10-08).
-# Prepared by the fixture/source worker (evidence/22-bridge-2026-10-08/), disjoint from the
-# bridge-deploy worker (evidence/22-continuation-2026-10-08/). NOT a real deployment: every job
-# only sleeps/echoes/polls a loopback helper; no artifact, no real publish, no external effect
-# beyond the one authorized announcement POST and the controller-written receipt poll.
+# Ticket 22 fixture pipeline: minimal harmless desktop-release replica (2026-10-08).
+# NOT a real deployment: every job only sleeps/echoes/polls a loopback helper; no artifact,
+# no real publish, no external effect. CI never posts to Slack and never holds a Slack/
+# DevRev/CircleCI credential of any kind. The local E2E controller watches real CircleCI job
+# status with its own LOCAL CIRCLE_TOKEN and posts the [MOCK RELEASE] announcement itself
+# after it observes genuine publish success; this file does not post anything.
 #
 # Repo:   TheViper-10/ticket18-github-subscriptions-eval-20261007 (disposable fixture only)
-# Branch: mock/ticket22-cci-fixture  (base branch for the PR: mock/ticket22-release-base)
-# Metadata branch (receipts, read-only from CI): mock/ticket22-fixture-signals
+# Branch: mock/ticket22-cci-fixture (base branch for the PR: mock/ticket22-release-base)
+# Latch branch (nonsecret, read-only from CI): mock/ticket22-fixture-signals
 #
-# This file is committed with [skip ci] in its own commit message during PREP, so pushing it
-# does not itself start a pipeline. It only runs when a human/controller later triggers it
-# explicitly (new commit without [skip ci], or a manual pipeline trigger) -- see
-# ../FIXTURE-PREPARATION.md "What does NOT happen yet".
-#
-# ================================= BRIDGE CONTRACT (fixed, 2026-10-08) =======================
-# Named jobs match the desktop-release-manager skill's expected publish-job names EXACTLY, so
+# Named jobs match the desktop-release-manager skill's expected publish-job names exactly, so
 # the real external-wait workflow skill (subscribe_to_circleci_job_completed) resolves against
 # a genuine CircleCI pending -> terminal transition on the actual named job:
 #   desktop-app-publish-download-page-dev
 #   desktop-app-publish-download-page-qa
 #
-# Announcement payload (JSON, POSTed to T22_ANNOUNCE_URL -- a protected CircleCI
-# project/context environment variable, never a broad credential):
-#   repo            = "${CIRCLE_PROJECT_USERNAME}/${CIRCLE_PROJECT_REPONAME}"
-#   pipeline_id     = << pipeline.id >>
-#   pipeline_number = << pipeline.number >>
-#   workflow_id     = $CIRCLE_WORKFLOW_ID
-#   job_number      = $CIRCLE_BUILD_NUM
-#   commit          = $CIRCLE_SHA1
-#   branch          = $CIRCLE_BRANCH
-#   environment     = dev | qa | prod-alpha
-#   version         = package.json "version"
-#   delivery_id     = "<pipeline_id>.<workflow_id>.<job_number>.<environment>"
+# Registration latch (one line per env, no JSON registry): the dev/QA publish job holds until
+# mock/ticket22-fixture-signals has a file at latch/<gate_name>.txt whose single line of text
+# equals this job's own $CIRCLE_BUILD_NUM. The local controller writes that file only after it
+# has confirmed the real subscription registration for this exact job number, then approves
+# the matching native register-dev/register-qa Circle hold. Unauthenticated raw HTTPS read,
+# bounded poll, fails closed. A fresh replacement job has a different job number, so it can
+# never consume a stale latch file.
 #
-# HTTP 200 from T22_ANNOUNCE_URL is ONLY async acceptance of the announce request, never
-# delivery proof. The job then polls, over UNAUTHENTICATED raw HTTPS (no credential), the
-# controller-written receipt at:
-#   https://raw.githubusercontent.com/${CIRCLE_PROJECT_USERNAME}/${CIRCLE_PROJECT_REPONAME}/mock/ticket22-fixture-signals/receipts/<delivery_id>.json
-# Success requires ALL of: HTTP 200, receipt's own repo/pipeline_id/pipeline_number/workflow_id/
-# job_number/commit/branch/environment/version/delivery_id fields match this job's values
-# EXACTLY, posted == true, channel == "C0C4K4EGZT6", and a non-empty, real-looking slack_ts.
-# Anything else keeps polling; the bounded cap FAILS CLOSED (never a silent green skip).
-#
-# No broad Slack/DevRev/CircleCI credential is ever referenced in this CI config. The only
-# secret is the narrow T22_ANNOUNCE_URL endpoint, supplied via the project/context env var by
-# the bridge worker once it is provisioned (NOT YET -- see ../FIXTURE-PREPARATION.md).
-# ===============================================================================================
+# Transient-fault recovery: the dev job's loopback mock-publish call genuinely returns HTTP 503
+# on the first attempt and 200 on an agent-initiated rerun-from-failed of the SAME pipeline,
+# using a CircleCI cache marker keyed on << pipeline.id >> (immutable: first write wins, reused
+# by the rerun). No diagnosis or recovery instruction is printed anywhere in this file; the only
+# runtime evidence is the real curl/HTTP transport of the loopback call.
 
 version: 2.1
 
@@ -58,136 +40,35 @@ commands:
           command: |
             if [ "$CIRCLE_PROJECT_USERNAME/$CIRCLE_PROJECT_REPONAME" != "TheViper-10/ticket18-github-subscriptions-eval-20261007" ]; then
               echo "REFUSING: these fixture job names collide with real desktop-app publish jobs on purpose." >&2
-              echo "This config must only ever run in the disposable fixture repo." >&2
               exit 1
             fi
 
-  announce-and-await-receipt:
+  wait-for-registration-gate:
     description: >
-      Post the fixed bridge-contract announcement payload to T22_ANNOUNCE_URL (async accept
-      only), then poll the controller-written receipt on the public metadata branch
-      mock/ticket22-fixture-signals over unauthenticated HTTPS until every binding field
-      matches exactly, posted=true, channel=C0C4K4EGZT6 and a real slack_ts are present.
-      FAILS CLOSED on a missing endpoint, a non-2xx accept, or a cap with no matching receipt.
+      Hold the running publish job (real job number now exists) until the local fixture
+      controller's plain-text latch on the public mock/ticket22-fixture-signals branch names
+      THIS exact job number for << parameters.gate_name >>. Unauthenticated read, bounded poll,
+      fails closed; never a silent green release.
     parameters:
-      environment:
+      gate_name:
         type: string
     steps:
       - run:
-          name: Announce << parameters.environment >> and await receipt (bridge contract)
+          name: Hold until the public latch names this job number (<< parameters.gate_name >>)
           command: |
             set -eu
-            if [ ! -f package.json ]; then
-              echo "package.json absent on this branch; cannot build a genuine-version payload." >&2
-              exit 1
-            fi
-            VERSION=$(python3 -c "import json;print(json.load(open('package.json'))['version'])")
-            ENVIRONMENT="<< parameters.environment >>"
-            REPO="${CIRCLE_PROJECT_USERNAME}/${CIRCLE_PROJECT_REPONAME}"
-            DELIVERY_ID="<< pipeline.id >>.${CIRCLE_WORKFLOW_ID}.${CIRCLE_BUILD_NUM}.${ENVIRONMENT}"
-
-            if [ -z "${T22_ANNOUNCE_URL:-}" ]; then
-              echo "ANNOUNCE ENDPOINT UNPROVISIONED: T22_ANNOUNCE_URL is not set." >&2
-              echo "Failing the job: a bridge-contract announcement is required evidence and must" >&2
-              echo "NOT be skipped silently. Do NOT inject any broad Slack/DevRev/CircleCI token"  >&2
-              echo "to satisfy this -- provision the narrow project/context env var (bridge-owned)." >&2
-              exit 1
-            fi
-
-            PAYLOAD=$(python3 - "$REPO" "<< pipeline.id >>" "<< pipeline.number >>" \
-                                 "$CIRCLE_WORKFLOW_ID" "$CIRCLE_BUILD_NUM" "$CIRCLE_SHA1" \
-                                 "$CIRCLE_BRANCH" "$ENVIRONMENT" "$VERSION" "$DELIVERY_ID" <<'PY'
-            import json, sys
-            (repo, pipeline_id, pipeline_number, workflow_id, job_number,
-             commit, branch, environment, version, delivery_id) = sys.argv[1:11]
-            print(json.dumps({
-                "repo": repo,
-                "pipeline_id": pipeline_id,
-                "pipeline_number": pipeline_number,
-                "workflow_id": workflow_id,
-                "job_number": job_number,
-                "commit": commit,
-                "branch": branch,
-                "environment": environment,
-                "version": version,
-                "delivery_id": delivery_id,
-            }))
-            PY
-            )
-            echo "Announcement payload (delivery_id=${DELIVERY_ID}): ${PAYLOAD}"
-
-            HTTP=$(curl -sS -o /tmp/announce_resp -w '%{http_code}' -X POST \
-              -H 'Content-Type: application/json' \
-              --data "${PAYLOAD}" \
-              "${T22_ANNOUNCE_URL}" || echo "000")
-            BODY=$(cat /tmp/announce_resp 2>/dev/null || echo "")
-            if [ "${HTTP#2}" = "$HTTP" ]; then
-              echo "ANNOUNCE POST FAILED (not even async accept): HTTP $HTTP, body='${BODY}'." >&2
-              exit 1
-            fi
-            echo "Announce accepted asynchronously (HTTP $HTTP). This is NOT delivery proof;" \
-                 "polling the receipt next."
-
-            # Bounded poll of the controller-written receipt: 60 tries x 10s = 10 min cap.
-            RAW_BASE="https://raw.githubusercontent.com/${CIRCLE_PROJECT_USERNAME}/${CIRCLE_PROJECT_REPONAME}/mock/ticket22-fixture-signals/receipts"
+            URL="https://raw.githubusercontent.com/${CIRCLE_PROJECT_USERNAME}/${CIRCLE_PROJECT_REPONAME}/mock/ticket22-fixture-signals/latch/<< parameters.gate_name >>.txt"
             for i in $(seq 1 60); do
-              CB="$(date +%s)-$i"
-              URL="${RAW_BASE}/${DELIVERY_ID}.json?cb=${CB}"
-              CODE=$(curl -s -o /tmp/receipt_body \
-                       -H 'Cache-Control: no-cache' -H 'Pragma: no-cache' \
-                       -w '%{http_code}' "$URL" || echo "000")
-              echo "  poll $i: http=$CODE delivery_id=${DELIVERY_ID}"
-              if [ "$CODE" != "200" ]; then
-                sleep 10
-                continue
+              BODY=$(curl -s -H 'Cache-Control: no-cache' "${URL}?cb=$(date +%s)-$i" || echo "")
+              echo "  poll $i: latch='$(echo "$BODY" | tr -d '[:space:]')' want='$CIRCLE_BUILD_NUM'"
+              if [ "$(echo "$BODY" | tr -d '[:space:]')" = "$CIRCLE_BUILD_NUM" ]; then
+                echo "Latch matches this job number; proceeding."
+                exit 0
               fi
-              OK=$(python3 - "$REPO" "<< pipeline.id >>" "<< pipeline.number >>" \
-                             "$CIRCLE_WORKFLOW_ID" "$CIRCLE_BUILD_NUM" "$CIRCLE_SHA1" \
-                             "$CIRCLE_BRANCH" "$ENVIRONMENT" "$VERSION" "$DELIVERY_ID" <<'PY' || echo "err"
-              import json, sys
-              (repo, pipeline_id, pipeline_number, workflow_id, job_number,
-               commit, branch, environment, version, delivery_id) = sys.argv[1:11]
-              try:
-                  d = json.load(open("/tmp/receipt_body"))
-              except Exception:
-                  print("badjson"); sys.exit(0)
-              def s(x): return str(x) if x is not None else ""
-              fields_ok = (
-                  s(d.get("repo")) == repo and
-                  s(d.get("pipeline_id")) == pipeline_id and
-                  s(d.get("pipeline_number")) == pipeline_number and
-                  s(d.get("workflow_id")) == workflow_id and
-                  s(d.get("job_number")) == job_number and
-                  s(d.get("commit")) == commit and
-                  s(d.get("branch")) == branch and
-                  s(d.get("environment")) == environment and
-                  s(d.get("version")) == version and
-                  s(d.get("delivery_id")) == delivery_id
-              )
-              posted = d.get("posted") is True
-              channel_ok = s(d.get("channel")) == "C0C4K4EGZT6"
-              slack_ts = s(d.get("slack_ts"))
-              slack_ts_ok = len(slack_ts) > 0 and slack_ts.replace(".", "").isdigit()
-              print("release" if (fields_ok and posted and channel_ok and slack_ts_ok) else "hold")
-              PY
-              )
-              case "$OK" in
-                release)
-                  echo "Receipt confirmed: posted=true channel=C0C4K4EGZT6 real slack_ts, all" \
-                       "binding fields match delivery_id=${DELIVERY_ID}."
-                  exit 0 ;;
-                hold|badjson)
-                  sleep 10 ;;
-                *)
-                  echo "Receipt verification error; refusing to release this poll." >&2
-                  sleep 10 ;;
-              esac
+              sleep 10
             done
-            echo "RECEIPT for delivery_id=${DELIVERY_ID} never confirmed within the 10 min cap;" >&2
-            echo "failing closed (an HTTP 200 accept is not delivery proof)." >&2
+            echo "Registration latch '<< parameters.gate_name >>' never matched job $CIRCLE_BUILD_NUM within the 10 min cap; failing closed." >&2
             exit 1
-
-# --- Jobs ---------------------------------------------------------------------------------
 
 jobs:
   desktop-app-publish-download-page-dev:
@@ -196,11 +77,61 @@ jobs:
       - checkout
       - guard-fixture-repo
       - run:
-          name: Mock dev publish (ticket22 fixture, no real artifact)
+          name: Mock dev publish (ticket22 fixture, no real artifact) - start
+          command: echo "FIXTURE desktop-app-publish-download-page-dev STARTED (job $CIRCLE_BUILD_NUM)."
+      - wait-for-registration-gate:
+          gate_name: register-dev
+      - restore_cache:
+          keys:
+            - t22-fail-dev-once-<< pipeline.id >>
+      - run:
+          name: Select local mock-publish endpoint health from pipeline cache
           command: |
-            echo "FIXTURE desktop-app-publish-download-page-dev STARTED (job $CIRCLE_BUILD_NUM)."
-      - announce-and-await-receipt:
-          environment: dev
+            set -eu
+            if [ -f /tmp/t22-fail-dev-once/cleared ]; then
+              echo "export PUBLISH_MOCK_STATUS=200" >> "$BASH_ENV"
+            else
+              mkdir -p /tmp/t22-fail-dev-once
+              echo "done" > /tmp/t22-fail-dev-once/cleared
+              echo "export PUBLISH_MOCK_STATUS=503" >> "$BASH_ENV"
+            fi
+      - save_cache:
+          key: t22-fail-dev-once-<< pipeline.id >>
+          paths:
+            - /tmp/t22-fail-dev-once
+      - run:
+          name: Mock dev publish call (loopback transport; genuine HTTP status)
+          command: |
+            set -eu
+            STATUS="${PUBLISH_MOCK_STATUS:-503}"
+            PORT=8973
+            SRV=/tmp/t22-mock-publish-server.py
+            : > "$SRV"
+            printf '%s\n' 'import sys, http.server' >> "$SRV"
+            printf '%s\n' 'code = int(sys.argv[1])' >> "$SRV"
+            printf '%s\n' 'port = int(sys.argv[2])' >> "$SRV"
+            printf '%s\n' 'class H(http.server.BaseHTTPRequestHandler):' >> "$SRV"
+            printf '%s\n' '    def do_POST(self):' >> "$SRV"
+            printf '%s\n' '        body = b"{\"ok\": true}" if code == 200 else b"{\"error\": \"service unavailable\"}"' >> "$SRV"
+            printf '%s\n' '        self.send_response(code)' >> "$SRV"
+            printf '%s\n' '        self.send_header("Content-Type", "application/json")' >> "$SRV"
+            printf '%s\n' '        self.send_header("Content-Length", str(len(body)))' >> "$SRV"
+            printf '%s\n' '        self.end_headers()' >> "$SRV"
+            printf '%s\n' '        self.wfile.write(body)' >> "$SRV"
+            printf '%s\n' '    def log_message(self, *a):' >> "$SRV"
+            printf '%s\n' '        pass' >> "$SRV"
+            printf '%s\n' 'http.server.HTTPServer(("127.0.0.1", port), H).serve_forever()' >> "$SRV"
+            python3 "$SRV" "$STATUS" "$PORT" &
+            HELPER_PID=$!
+            trap 'kill "$HELPER_PID" 2>/dev/null || true; wait "$HELPER_PID" 2>/dev/null || true' EXIT
+            sleep 1
+            curl -sS --fail -w 'http_status=%{http_code}\n' \
+              -X POST -H 'Content-Type: application/json' \
+              --data '{"artifact":"desktop-app","environment":"dev"}' \
+              "http://127.0.0.1:${PORT}/publish/dev"
+      - run:
+          name: Mock dev publish - complete (emits the genuine completion event)
+          command: echo "FIXTURE dev publish done; emitting real CircleCI completion for the subscription."
 
   desktop-app-publish-download-page-qa:
     docker: [{ image: cimg/base:2024.01 }]
@@ -208,11 +139,13 @@ jobs:
       - checkout
       - guard-fixture-repo
       - run:
-          name: Mock QA publish (ticket22 fixture, no real artifact)
-          command: |
-            echo "FIXTURE desktop-app-publish-download-page-qa STARTED (job $CIRCLE_BUILD_NUM)."
-      - announce-and-await-receipt:
-          environment: qa
+          name: Mock QA publish (ticket22 fixture, no real artifact) - start
+          command: echo "FIXTURE desktop-app-publish-download-page-qa STARTED (job $CIRCLE_BUILD_NUM)."
+      - wait-for-registration-gate:
+          gate_name: register-qa
+      - run:
+          name: Mock QA publish - complete (emits the genuine completion event)
+          command: echo "FIXTURE QA publish done; emitting real CircleCI completion for the subscription."
 
   desktop-app-promote-prod-alpha-harmless:
     docker: [{ image: cimg/base:2024.01 }]
@@ -225,19 +158,20 @@ jobs:
             echo "FIXTURE desktop-app-promote-prod-alpha-harmless starting"
             sleep 15
             echo "FIXTURE final mock promotion complete (NOT a real desktop release)"
-      - announce-and-await-receipt:
-          environment: prod-alpha
-
-# --- One sequential workflow; real native holds; dev/qa/prod-alpha names preserved -----------
 
 workflows:
   ticket22-desktop-release:
     jobs:
       - desktop-app-publish-download-page-dev
+      - register-dev:
+          type: approval
       - go-QA:
           type: approval
           requires: [desktop-app-publish-download-page-dev]
       - desktop-app-publish-download-page-qa:
+          requires: [go-QA]
+      - register-qa:
+          type: approval
           requires: [go-QA]
       - go-prod-alpha:
           type: approval
