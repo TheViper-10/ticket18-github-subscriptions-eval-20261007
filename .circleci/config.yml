@@ -1,84 +1,57 @@
-# Harmless Tony ticket-22 desktop-release FIXTURE pipeline (run4, with manual approval holds).
-# NOT a real deployment. Every job only sleeps + echoes. No artifacts, no deploy, no external effect.
-# Approval holds let a subscription be registered against a job while it is genuinely pending,
-# so the subscribe_to_circleci_job_completed node is proven on a real pending->completion transition.
+# Harmless Tony ticket-23 Branch A desktop-release FIXTURE pipeline (eval23A, short waits).
+# NOT a real deployment. Jobs only sleep + echo. No artifacts, no deploy, no external effect.
+# Approval holds let a subscription register against a job while genuinely pending, so
+# subscribe_to_circleci_job_completed is proven on a real pending->completion transition.
 version: 2.1
 
 jobs:
   build-product-desktop-app:
-    docker:
-      - image: cimg/base:2024.01
+    docker: [{image: cimg/base:2024.01}]
     steps:
       - run:
-          name: Mock desktop build (version-bump 5.3.0)
+          name: Mock desktop build (version-bump 5.5.0)
           command: |
-            echo "FIXTURE build-product-desktop-app for v5.3.0 (no real artifact)"
-            sleep 420
+            echo "FIXTURE build-product-desktop-app for v5.5.0 (no real artifact)"
+            sleep 45
             echo "build done"
   package-linux-qa:
-    docker:
-      - image: cimg/base:2024.01
+    docker: [{image: cimg/base:2024.01}]
     steps:
-      - run:
-          name: Mock linux QA package
-          command: |
-            echo "FIXTURE package-linux-qa"
-            sleep 420
-            echo "linux qa ok"
+      - run: {name: Mock linux QA package, command: "echo linux; sleep 45; echo linux ok"}
   package-windows-qa:
-    docker:
-      - image: cimg/base:2024.01
+    docker: [{image: cimg/base:2024.01}]
     steps:
-      - run:
-          name: Mock windows QA package
-          command: |
-            echo "FIXTURE package-windows-qa"
-            sleep 420
-            echo "windows qa ok"
+      - run: {name: Mock windows QA package, command: "echo windows; sleep 45; echo windows ok"}
   package-mac-qa:
-    docker:
-      - image: cimg/base:2024.01
+    docker: [{image: cimg/base:2024.01}]
+    steps:
+      - run: {name: Mock mac QA package, command: "echo mac; sleep 45; echo mac ok"}
+  # Genuine CircleCI-native terminal status for S11/S12: a step that exceeds its
+  # no_output_timeout makes CircleCI assign the terminal status "timedout" (not a product exit code).
+  package-mac-qa-timeout:
+    docker: [{image: cimg/base:2024.01}]
     steps:
       - run:
-          name: Mock mac QA package
+          name: Mock mac QA package (induced step timeout -> CircleCI timedout)
+          no_output_timeout: 20s
           command: |
-            echo "FIXTURE package-mac-qa"
-            sleep 420
-            echo "mac qa ok"
-  package-linux-qa-fail:
-    docker:
-      - image: cimg/base:2024.01
-    steps:
-      - run:
-          name: Mock linux QA package (intentional failure for S11)
-          command: |
-            echo "FIXTURE package-linux-qa-fail: will fail to prove a held release"
-            sleep 300
-            exit 1
+            echo "starting mac qa; will exceed no_output_timeout to produce CircleCI-native timedout"
+            sleep 120
+            echo "should never reach here"
 
 workflows:
-  # Build workflow: hold -> build. Approve the hold to start the build running.
   desktop-release-build:
     jobs:
-      - hold-build:
-          type: approval
-      - build-product-desktop-app:
-          requires: [hold-build]
-  # QA workflow: hold -> 3 OS QA jobs in parallel. Approve the hold to start all three running.
+      - hold-build: {type: approval}
+      - build-product-desktop-app: {requires: [hold-build]}
   desktop-release-qa:
     jobs:
-      - hold-qa:
-          type: approval
-      - package-linux-qa:
-          requires: [hold-qa]
-      - package-windows-qa:
-          requires: [hold-qa]
-      - package-mac-qa:
-          requires: [hold-qa]
-  # Failcase workflow for the partial-OS-failure variation (S11).
-  desktop-release-failcase:
+      - hold-qa: {type: approval}
+      - package-linux-qa: {requires: [hold-qa]}
+      - package-windows-qa: {requires: [hold-qa]}
+      - package-mac-qa: {requires: [hold-qa]}
+  # Timeout workflow: hold -> a job CircleCI terminates as "timedout" (genuine transient-style infra terminal).
+  desktop-release-timeout:
     jobs:
-      - hold-fail:
-          type: approval
-      - package-linux-qa-fail:
-          requires: [hold-fail]
+      - hold-timeout: {type: approval}
+      - package-mac-qa-timeout: {requires: [hold-timeout]}
