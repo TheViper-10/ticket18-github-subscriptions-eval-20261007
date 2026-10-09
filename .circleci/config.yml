@@ -1,0 +1,68 @@
+version: 2.1
+parameters:
+  shape:
+    type: enum
+    enum: [pr_checks, hotfix]
+    default: pr_checks
+  parallel_seconds:
+    type: integer
+    default: 90
+  fail_initial:
+    type: boolean
+    default: true
+jobs:
+  work:
+    docker:
+      - image: cimg/base:stable
+    parameters:
+      seconds:
+        type: integer
+        default: 1
+      fail:
+        type: boolean
+        default: false
+    steps:
+      - run:
+          name: Harmless ticket28 controlled work
+          command: |
+            echo "Ticket28 controlled provider observation only; no release or external side effects"
+            sleep << parameters.seconds >>
+            if [ '<< parameters.fail >>' = 'true' ]; then exit 1; fi
+            echo "Automatic work finished"
+workflows:
+  pr_checks:
+    when:
+      equal: [pr_checks, << pipeline.parameters.shape >>]
+    jobs: &phase_jobs
+      - work:
+          name: seed
+      - work:
+          name: parallel-auto
+          seconds: << pipeline.parameters.parallel_seconds >>
+      - work:
+          name: automatic-failure
+          fail: << pipeline.parameters.fail_initial >>
+          requires: [seed]
+      - work:
+          name: failure-handler
+          seconds: 20
+          requires:
+            - automatic-failure: [failed, canceled]
+      - gate-1:
+          type: approval
+          requires: [seed]
+      - work:
+          name: after-gate-1
+          seconds: 45
+          requires: [gate-1]
+      - gate-2:
+          type: approval
+          requires: [after-gate-1]
+      - work:
+          name: after-gate-2
+          seconds: 45
+          requires: [gate-2]
+  hotfix:
+    when:
+      equal: [hotfix, << pipeline.parameters.shape >>]
+    jobs: *phase_jobs
